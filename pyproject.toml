@@ -1,0 +1,13 @@
+[tool.mypy]
+allow_redefinition = true
+
+
+[tool.pyright]
+exclude = ["**/__pycache__",
+    ".ipynb_checkpoints",
+    "cfgs",
+    "models",
+]
+
+reportMissingImports = true
+reportMissingTypeStubs = false
