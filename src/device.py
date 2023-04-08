@@ -4,6 +4,7 @@ import time
 from typing import Any, Dict, Iterator, List, Set
 import importlib
 import sys
+import logging
 
 import torch
 
@@ -29,7 +30,7 @@ def alloc(
         for device in alloc_cuda(preferred_devices, wait_time):
             yield device
     else:
-        print("Package pynvml not found, force using cpu.")
+        logging.warning("Package pynvml not found, force using cpu.")
         for _ in preferred_devices:
             yield {"device": "cpu"}
 
@@ -91,13 +92,13 @@ def alloc_cuda(
                         # add free gpu
                         gpu_queue.append(index)
                 if len(gpu_queue) == 0:
-                    print("Preferred: {}. Waiting for Free GPU ......".format(
+                    logging.info("Preferred: {}. Waiting for Free GPU ......".format(
                         task_preferred_devices if len(task_preferred_devices) != 0 else available_gpus,
                     ))
                     time.sleep(wait_time)
                     gpu_just_used = []
                 else:
-                    print("Available device: ", gpu_queue)
+                    logging.info(f"Available device: {gpu_queue}")
 
             # print("########### Using GPU Normal Training ###########")
 

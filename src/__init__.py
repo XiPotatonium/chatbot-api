@@ -1,20 +1,19 @@
 import json
-from dataclasses import dataclass
 from typing import List, Optional
 
-from fastapi import Body, FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
-from starlette.responses import FileResponse, PlainTextResponse, HTMLResponse
+from fastapi import Body, FastAPI, File, HTTPException, UploadFile, Request
+from fastapi.responses import JSONResponse
+import logging
 from pydantic import BaseModel
 from pathlib import Path
 import pydantic
-from .model_pool import ModelPool
-from .common import MODEL_MAPPING
+from .model_pool import MODEL_POOL
+from .model import MODEL_MAPPING
 from .api import chat_completion
+from .device import alloc
 
 
-MODEL_POOL = ModelPool()
-
+logging.basicConfig(level=logging.INFO)
 
 app = FastAPI()
 
@@ -52,11 +51,21 @@ def debug(files: List[UploadFile] = File(...), data: Base = Body(...)):
     return {"JSON Payload ": data, "Filenames": [file.filename for file in files]}
 
 
+@app.on_event("startup")
+async def startup_event():
+    models = [
+        (MODEL_MAPPING["blip2zh-chatglm-6b"], 1)
+    ]
+    total_models = sum(n for _, n in models)
+    MODEL_POOL.load_models(models, alloc([[] for _ in range(total_models)]))
+    logging.info("Server startup finished.")
+
+
 @app.on_event("shutdown")
-def shutdown_event():
-    print("Closing service...")
-    print("Closing models")
-    MODEL_POOL.terminate()
+async def shutdown_event():
+    logging.info("Closing service...")
+    logging.info("Closing models")
+    await MODEL_POOL.terminate()
 
 
 # io = gr.Interface(lambda x: "Hello, " + x + "!", "textbox", "textbox")

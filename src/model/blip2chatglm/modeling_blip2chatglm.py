@@ -116,9 +116,13 @@ class Blip2ForChatGLM(PreTrainedModel):
         self.language_projection = nn.Linear(config.qformer_config.hidden_size, config.text_config.hidden_size)
 
 
-class Blip2ChatGLM(nn.Module):
-    def __init__(self, blip2: Blip2ForChatGLM, lm: ChatGLMForConditionalGeneration) -> None:
-        super().__init__()
+class Blip2ChatGLM(PreTrainedModel):
+    config_class = Blip2ChatGLMConfig
+
+    def __init__(
+        self, config: Blip2ChatGLMConfig, blip2: Blip2ForChatGLM, lm: ChatGLMForConditionalGeneration
+    ) -> None:
+        super().__init__(config)
         self.blip2 = blip2
         self.language = lm
 

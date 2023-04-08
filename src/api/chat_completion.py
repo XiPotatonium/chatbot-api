@@ -2,17 +2,14 @@ import asyncio
 import io
 import json
 from dataclasses import dataclass
+import logging
 from typing import Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, APIRouter, UploadFile, Form, File, Body, Depends
 from fastapi.responses import StreamingResponse
 from starlette.responses import FileResponse, PlainTextResponse, HTMLResponse
 from pydantic import BaseModel
-from pathlib import Path
-import pydantic
-from PIL import Image
-from ..model_pool import ModelPool
-from ..common import MODEL_MAPPING
+from ..model_pool import ModelPool, MODEL_POOL
 
 
 router = APIRouter()
@@ -42,41 +39,26 @@ class ChatCompletionRequest(BaseModel):
 
 @router.post("/api/chat/completion")
 async def chat_completion(
-    image: Optional[UploadFile] = File(None),
+    files: List[UploadFile] = File([]),
     data: ChatCompletionRequest = Body(...),
 ):
-    # model = MODEL_POOL.get(request.model)
-    # if model is None:
-    #     raise HTTPException(status_code=404, detail="model not found")
-    if image is not None:
-        # print(image)
-        print(image.filename)
-        contents = await image.read()
-        # print(len(contents))
-        pilimg = Image.open(io.BytesIO(contents))
-        print(pilimg.size)
+    try:
+        model = MODEL_POOL.acquire(data.model)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="model not found")
+
+    if files is not None:
+        files = {f.filename: (await f.read(), f.content_type) for f in files}
+        # logging.info(files.keys())
+
     if data.stream:
-        print("streaming")
-        all_choices = [
-            [{"delta": {"role": "assistant"}}],
-            [{"delta": {"content": "This"}}],
-            [{"delta": {"content": " "}}],
-            [{"delta": {"content": "is"}}],
-            [{"delta": {"content": " "}}],
-            [{"delta": {"content": "a"}}],
-            [{"delta": {"content": " "}}],
-            [{"delta": {"content": "debug"}}],
-            [{"delta": {"content": " "}}],
-            [{"delta": {"content": "message"}}],
-            [{"delta": {"content": " "}}],
-            [{"delta": {"content": "."}}],
-            [{"delta": {}}],
-        ]
         async def stream_generate():
-            for choices in all_choices:
-                yield json.dumps({"choices": choices}) + '\n'
-                await asyncio.sleep(0.1)
+            async for choices in model.predict(data.dict(), files):
+                resp = {'choices': choices}
+                # logging.debug(resp)
+                yield json.dumps(resp) + '\n'
         return StreamingResponse(stream_generate(), media_type='text/event-stream')
     else:
-        choices = [{"message": {"role": "assistant", "content": "This is a debug message."}}]
+        choices = [pred async for pred in model.predict(data.dict(), files)]
+        assert len(choices) == 1
         return ChatCompletionResponse(choices=choices)
