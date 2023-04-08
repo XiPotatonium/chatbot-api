@@ -1,6 +1,6 @@
 # chatbot-api
 
-SEE [example.ipynb](example.ipynb) for detailed examples.
+SEE [examples.ipynb](examples.ipynb) for detailed examples.
 
 # Run
 
