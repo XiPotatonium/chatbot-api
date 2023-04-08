@@ -1,0 +1,5 @@
+{
+    "cls": "ChatGLMModel",
+    "model_path": "models/chatglm-6b",
+    "prec": "fp16"
+}

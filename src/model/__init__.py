@@ -1,5 +1,8 @@
 from __future__ import annotations
+import sys
 from .blip2chatglm import Blip2ChatGLMModel
+from .chatglm import ChatGLMModel
+from .llama import LlamaLoraModel
 from .model import ChatModel, Model, iter_messages
 
 # __future__.annotations will become the default in Python 3.11
@@ -14,13 +17,7 @@ __all__ = [
     "ChatModel",
     "iter_messages",
     "ModelMeta",
-    "Blip2ChatGLMModel",
 ]
-
-
-def _load_cfg(path: str):
-    with Path(path).open("r", encoding="utf8") as rf:
-        return json.load(rf)
 
 
 @dataclass
@@ -30,10 +27,13 @@ class ModelMeta:
     cls: Type[Model]
 
 
-MODEL_MAPPING = {
-    "blip2zh-chatglm-6b": ModelMeta(
-        "blip2zh-chatglm-6b",
-        _load_cfg("cfgs/blip2zh-chatglm-6b.json"),
-        Blip2ChatGLMModel,
-    ),
-}
+MODEL_MAPPING = {}
+
+for file in Path("cfgs").iterdir():
+    with file.open('r', encoding="utf8") as rf:
+        cfg = json.load(rf)
+        MODEL_MAPPING[file.stem] = ModelMeta(
+            file.stem,
+            cfg,
+            getattr(sys.modules[__name__], cfg["cls"]),
+        )

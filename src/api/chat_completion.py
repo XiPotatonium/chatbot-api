@@ -54,11 +54,13 @@ async def chat_completion(
     if data.stream:
         async def stream_generate():
             async for choices in model.predict(data.dict(), files):
-                resp = {'choices': choices}
+                resp = ChatCompletionResponse(choices=choices)
                 # logging.debug(resp)
-                yield json.dumps(resp) + '\n'
+                yield json.dumps(resp.dict()) + '\n'
         return StreamingResponse(stream_generate(), media_type='text/event-stream')
     else:
         choices = [pred async for pred in model.predict(data.dict(), files)]
         assert len(choices) == 1
-        return ChatCompletionResponse(choices=choices)
+        choices = choices[0]
+        # logging.debug(choices)
+        return ChatCompletionResponse(choices=choices).dict()

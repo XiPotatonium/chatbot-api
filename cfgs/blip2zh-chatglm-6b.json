@@ -1,5 +1,5 @@
 {
-    "model": "blip2chatglm",
+    "cls": "Blip2ChatGLMModel",
     "model_path": "models/blip2zh-chatglm-6b",
     "lm_path": "models/chatglm-6b",
     "prec": "fp16"

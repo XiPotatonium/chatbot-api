@@ -1,0 +1,5 @@
+{
+    "cls": "LlamaLoraModel",
+    "model_path": "models/llama-7b-hf",
+    "lora_path": "models/alpaca-lora-7b"
+}

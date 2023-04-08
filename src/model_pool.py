@@ -59,7 +59,9 @@ class ModelResource:
             if self.request_validator is not None:
                 self.request_validator(req, files)
         except Exception as e:
-            raise HTTPException(400, f"Oops! An error occurred in validating your requests: {str(e)}")
+            raise HTTPException(
+                400, f"Oops! An error occurred in validating your requests: {str(e)}"
+            )
         async with self.lock:
             self._in_q.put((req, files))
             while True:
@@ -67,7 +69,9 @@ class ModelResource:
                 if resp is None:
                     break
                 if isinstance(resp, ModelInternelException):
-                    raise HTTPException(400, f"Oops! An error occurred during inference: {resp.msg}")
+                    raise HTTPException(
+                        400, f"Oops! An error occurred during inference: {resp.msg}"
+                    )
                 yield resp
 
     async def terminate(self):
@@ -95,9 +99,9 @@ class ModelPool:
                 model_lst.append(
                     ModelResource(process, in_q, out_q, meta.cls.request_validator)
                 )
-                logging.info(
-                    f"Loaded {meta.name} ({i + 1}/{count}) on {device} (pid={process.pid})"
-                )
+                # logging.info(
+                #     f"Loaded {meta.name} ({i + 1}/{count}) on {device} (pid={process.pid})"
+                # )
             self.models[meta.name] = model_lst
         # may be too simple design
         self.models_iter = {
@@ -118,6 +122,7 @@ MODEL_POOL = ModelPool()
 
 def model_worker(in_q: Queue, out_q: Queue, meta: ModelMeta, device: torch.device):
     model = meta.cls.load(meta.cfg, device)
+    logging.info(f"Loaded {meta.name} on {device}")
     while True:
         data = in_q.get()
         if data is None:
@@ -134,6 +139,7 @@ def model_worker(in_q: Queue, out_q: Queue, meta: ModelMeta, device: torch.devic
                     out_q.put(choices)
             else:
                 choices = model.generate(messages, **req)
+                # logging.debug(choices)
                 # currently mm output is not supported
                 out_q.put(choices)
             out_q.put(None)
