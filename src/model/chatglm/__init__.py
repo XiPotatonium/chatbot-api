@@ -22,8 +22,8 @@ class ChatGLMModel(ChatModel):
         cls, request: Mapping[str, Any], files: Dict[str, Tuple[bytes, str]]
     ):
         if not request.get("stream", False):
+            # Currently ChatGLM only allow streaming
             raise ValueError(f"only stream is implemented for {cls.__name__}")
-            # Currently ChatGLM only allow straming
 
         for req in request["messages"]:
             if "media" in req and len(req["media"]) != 0:

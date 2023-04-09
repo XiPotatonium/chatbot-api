@@ -24,8 +24,8 @@ class Blip2ChatGLMModel(ChatModel):
         cls, request: Mapping[str, Any], files: Dict[str, Tuple[bytes, str]]
     ):
         if not request.get("stream", False):
+            # Currently Blip2ChatGLM only allow streaming
             raise ValueError(f"only stream is implemented for {cls.__name__}")
-            # Currently Blip2ChatGLM only allow straming
         for k, (_, mime) in files.items():
             if mime not in ["image/png", "image/jpeg"]:
                 raise ValueError(f"unsupported media type {mime} for {cls.__name__}")
