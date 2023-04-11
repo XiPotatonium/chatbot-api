@@ -1,3 +1,4 @@
+import asyncio
 import json
 from typing import List, Optional
 
@@ -6,9 +7,7 @@ from fastapi.responses import JSONResponse
 import logging
 from pathlib import Path
 from .model_pool import MODEL_POOL
-from .model import MODEL_MAPPING
 from .api import chat_completion
-from .device import alloc
 
 
 logging.basicConfig(level=logging.INFO)
@@ -21,13 +20,10 @@ app.include_router(chat_completion.router)
 
 @app.on_event("startup")
 async def startup_event():
-    models = [
-        # (MODEL_MAPPING["blip2zh-chatglm-6b"], 1)
-        (MODEL_MAPPING["chatglm-6b"], 1)
-        # (MODEL_MAPPING["llama-7b-lora"], 1)
-    ]
-    total_models = sum(n for _, n in models)
-    MODEL_POOL.load_models(models, alloc([[] for _ in range(total_models)]))
+    with Path("load_config.json").open('r', encoding="utf8") as rf:
+        load_config = json.load(rf)
+    MODEL_POOL.load_config = load_config
+    asyncio.create_task(MODEL_POOL.close_idle_models())
     logging.info("Server startup finished.")
 
 

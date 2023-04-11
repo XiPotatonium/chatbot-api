@@ -13,3 +13,28 @@ Now support:
 ```
 uvicorn src:app --reload
 ```
+
+chatbot-api now supports model scheduling:
+
+1. idle model instances will be closed
+2. new model instances will be created if too many concurrent requests
+
+You can modify [load_config.json](load_config.json) to change the scheduling strategy and model instances.
+
+A typical config is:
+
+```json
+{
+    "idle_check_period": 120,               # check idle models and close them every 120 seconds
+    "models": {
+        "blip2zh-chatglm-6b": {             # modelname should be the same as the config filename under cfgs/
+            "max_instances": 1,             # at most 1 instance will be created
+            "idle_time": 120,               # if no request for 120 seconds, the instance will be closed
+            "create_threshold": {           # if 5 requests request blip2zh-chatglm-6b in 10 seconds,
+                "n_requests": 5,            #    1 more instance will be created (not exceeding max_instances)
+                "delay": 10
+            }
+        }
+    }
+}
+```

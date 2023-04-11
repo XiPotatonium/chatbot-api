@@ -6,14 +6,13 @@ from ...device import empty_cache
 from ...common import ROLE_BOT, ROLE_USER, ROLE_SYSTEM
 from ..model import Model, ChatModel
 from transformers import (
-    AutoModel,
-    AutoTokenizer,
     BlipImageProcessor,
     PreTrainedTokenizer,
 )
 from typing import Any, Dict, Iterator, List, Mapping, MutableMapping, Tuple, Union
 from .modeling_blip2chatglm import Blip2ChatGLM, Blip2ForChatGLM, Blip2ChatGLMConfig
 from .modeling_chatglm import ChatGLMForConditionalGeneration
+from .tokenization_chatglm import ChatGLMTokenizer
 from transformers.utils.constants import OPENAI_CLIP_MEAN, OPENAI_CLIP_STD
 from PIL import Image
 
@@ -39,8 +38,8 @@ class Blip2ChatGLMModel(ChatModel):
 
     @classmethod
     def load(cls, cfg: MutableMapping[str, Any], device: torch.device) -> Model:
-        tokenizer = AutoTokenizer.from_pretrained(
-            cfg["lm_path"], trust_remote_code=True
+        tokenizer = ChatGLMTokenizer.from_pretrained(
+            cfg["lm_path"], # trust_remote_code=True
         )
         lm = ChatGLMForConditionalGeneration.from_pretrained(
             cfg["lm_path"],  # device_map="auto"

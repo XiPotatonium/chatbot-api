@@ -1,14 +1,21 @@
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 import itertools
 from asyncio import Lock
+from time import time
 import traceback
 from typing import Any, Dict, Iterator, List, MutableMapping, Optional, Tuple, Type
 
 import torch
-from multiprocessing import Queue, Process
+import multiprocessing as mp
+from multiprocessing.connection import Connection
+from collections import deque
 from fastapi import HTTPException
 import logging
 
-from .model import Model, ChatModel, iter_messages, ModelMeta
+from .device import DeviceMixin
+from .model import Model, ChatModel, iter_messages, ModelMeta, MODEL_MAPPING
 
 
 class ModelInternelException(Exception):
@@ -26,15 +33,15 @@ class ModelInternelException(Exception):
 class ModelResource:
     def __init__(
         self,
-        process: Process,
-        in_q: Queue,
-        out_q: Queue,
+        process: mp.Process,
+        conn: Connection,
+        executor: ThreadPoolExecutor,
         request_validator: Optional[callable] = None,
     ) -> None:
         self.process = process
-        self.lock = Lock()
-        self._in_q = in_q
-        self._out_q = out_q
+        self.lock = Lock()  # in_q and out_q should be protected by lock
+        self._conn = conn
+        self.executor = executor
         self.request_validator = request_validator
 
     async def predict(self, req: dict, files: Dict[str, Tuple[bytes, str]]):
@@ -63,9 +70,13 @@ class ModelResource:
                 400, f"Oops! An error occurred in validating your requests: {str(e)}"
             )
         async with self.lock:
-            self._in_q.put((req, files))
+            self._conn.send((req, files))
             while True:
-                resp = self._out_q.get()
+                # TODO: use asyncio to improve concurrency performance
+                # resp = self._conn.recv()
+                resp = await asyncio.get_event_loop().run_in_executor(
+                    self.executor, self._conn.recv
+                )
                 if resp is None:
                     break
                 if isinstance(resp, ModelInternelException):
@@ -76,37 +87,73 @@ class ModelResource:
 
     async def terminate(self):
         async with self.lock:
-            self._in_q.put(None)
+            self._conn.send(None)
             self.process.join()
 
 
-class ModelPool:
+class ModelPool(DeviceMixin):
     def __init__(self) -> None:
+        super().__init__()
         self.models = {}
+        self.models_iter = {}
+        self.requests_history = {}
+        self.load_config = {}
+        self.executor = ThreadPoolExecutor(max_workers=8)
 
-    def load_models(
-        self, models: List[Tuple[ModelMeta, int]], devices: Iterator[Dict[str, Any]]
-    ):
-        for meta, count in models:
-            model_lst = []
-            for i in range(count):
-                device = next(devices)
-                device = torch.device(device["device"])
-                in_q = Queue()
-                out_q = Queue()
-                process = Process(target=model_worker, args=(in_q, out_q, meta, device))
-                process.start()
-                model_lst.append(
-                    ModelResource(process, in_q, out_q, meta.cls.request_validator)
-                )
-                # logging.info(
-                #     f"Loaded {meta.name} ({i + 1}/{count}) on {device} (pid={process.pid})"
-                # )
-            self.models[meta.name] = model_lst
+    def _load(self, modelname: str):
+        meta = MODEL_MAPPING[modelname]
+        logging.info(f"Try loading 1 instance of {modelname}...")
+        device = next(self.alloc())
+        device = torch.device(device["device"])
+        p_conn, c_conn = mp.Pipe(duplex=True)
+        process = mp.Process(target=model_worker, args=(c_conn, meta, device))
+        process.start()
+        resources = ModelResource(
+            process, p_conn, self.executor, meta.cls.request_validator
+        )
+        if meta.name in self.models:
+            self.models[modelname].append(resources)
+        else:
+            self.models[modelname] = [resources]
+        # logging.info(
+        #     f"Loaded {meta.name} ({i + 1}/{count}) on {device} (pid={process.pid})"
+        # )
         # may be too simple design
-        self.models_iter = {
-            name: itertools.cycle(model_lst) for name, model_lst in self.models.items()
-        }
+        self.models_iter[modelname] = itertools.cycle(self.models[modelname])
+
+    @property
+    def model_configs(self):
+        return self.load_config["models"]
+
+    async def close_idle_models(self):
+        check_period = self.load_config["idle_check_period"]
+        while True:
+            for modelname, model_config in self.model_configs.items():
+                req_history = self.requests_history.get(modelname)
+                if modelname not in self.models or len(self.models[modelname]) == 0:
+                    continue
+                cur_time = datetime.now()
+                if (
+                    req_history is None
+                    or len(req_history) == 0
+                    or (cur_time - req_history[-1]).total_seconds()
+                    > model_config["idle_time"]
+                ):
+                    # close 1 instance of unused for a long period of time
+                    # Based on https://docs.python.org/3/library/asyncio-sync.html
+                    # Acquiring a lock is fair: the coroutine that proceeds will be the first coroutine that started waiting on the lock.
+                    # Therefore, by removing the model we want to close in the resource list,
+                    # the upcoming acquire will not get the model we want to close,
+                    # and the requests which are waiting for the model we are going to close will not be effected
+                    # since they will preceed before close_unused_models
+                    res = next(self.models_iter[modelname])
+                    self.models[modelname].remove(res)
+                    self.models_iter[modelname] = itertools.cycle(
+                        self.models[modelname]
+                    )
+                    await res.terminate()
+                    logging.info(f"Shut down 1 instance of {modelname}.")
+            await asyncio.sleep(check_period)
 
     async def terminate(self):
         for model_lst in self.models.values():
@@ -114,17 +161,39 @@ class ModelPool:
                 await model.terminate()
 
     def acquire(self, modelname: str) -> ModelResource:
+        load_config = self.model_configs[modelname]
+        if modelname not in self.requests_history:
+            self.requests_history[modelname] = deque(
+                maxlen=load_config["create_threshold"]["n_requests"]
+            )
+        cur_time = datetime.now()
+        self.requests_history[modelname].append(cur_time)
+        if modelname not in self.models or len(self.models[modelname]) == 0:
+            # create if no instance
+            if load_config["max_instances"] <= 0:
+                raise HTTPException(
+                    400, f"Oops! Model {modelname} is not available now."
+                )
+            self._load(modelname)
+        elif (
+            len(self.models[modelname]) < load_config["max_instances"]
+            and self.get_free_gpu_number() > 0
+            and (cur_time - self.requests_history[modelname][0]).total_seconds()
+            < load_config["create_threshold"]["delay"]
+        ):
+            # create if has free device and reach requests frequency threshold
+            self._load(modelname)
         return next(self.models_iter[modelname])
 
 
 MODEL_POOL = ModelPool()
 
 
-def model_worker(in_q: Queue, out_q: Queue, meta: ModelMeta, device: torch.device):
+def model_worker(conn: Connection, meta: ModelMeta, device: torch.device):
     model = meta.cls.load(meta.cfg, device)
     logging.info(f"Loaded {meta.name} on {device}")
     while True:
-        data = in_q.get()
+        data = conn.recv()
         if data is None:
             break
         req, files = data
@@ -136,13 +205,13 @@ def model_worker(in_q: Queue, out_q: Queue, meta: ModelMeta, device: torch.devic
 
             if req.get("stream", False):
                 for i, choices in enumerate(model.stream_generate(messages, **req)):
-                    out_q.put(choices)
+                    conn.send(choices)
             else:
                 choices = model.generate(messages, **req)
                 # logging.debug(choices)
                 # currently mm output is not supported
-                out_q.put(choices)
-            out_q.put(None)
+                conn.send(choices)
+            conn.send(None)
         except Exception as e:
             logging.error(traceback.format_exc())
-            out_q.put(ModelInternelException(msg=str(e)))
+            conn.send(ModelInternelException(msg=str(e)))

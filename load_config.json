@@ -1,0 +1,29 @@
+{
+    "idle_check_period": 120,
+    "models": {
+        "blip2zh-chatglm-6b": {
+            "max_instances": 1,
+            "idle_time": 120,
+            "create_threshold": {
+                "n_requests": 5,
+                "delay": 10
+            }
+        },
+        "chatglm-6b": {
+            "max_instances": 2,
+            "idle_time": 120,
+            "create_threshold": {
+                "n_requests": 5,
+                "delay": 10
+            }
+        },
+        "llama-7b-lora": {
+            "max_instances": 1,
+            "idle_time": 120,
+            "create_threshold": {
+                "n_requests": 5,
+                "delay": 10
+            }
+        }
+    }
+}
