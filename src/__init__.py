@@ -20,9 +20,9 @@ app.include_router(chat_completion.router)
 
 @app.on_event("startup")
 async def startup_event():
-    with Path("load_config.json").open('r', encoding="utf8") as rf:
-        load_config = json.load(rf)
-    MODEL_POOL.load_config = load_config
+    with Path("sched_config.json").open('r', encoding="utf8") as rf:
+        sched_config = json.load(rf)
+    MODEL_POOL.init(sched_config)
     asyncio.create_task(MODEL_POOL.close_idle_models())
     logging.info("Server startup finished.")
 

@@ -5,6 +5,7 @@ from typing import Any, Dict, Iterator, List, Set
 import importlib
 import sys
 import logging
+import asyncio
 
 import torch
 
@@ -56,14 +57,14 @@ class DeviceMixin:
         else:
             raise NotImplementedError()
 
-    def alloc(self, count: int = 1, waittime: float = 240.0) -> Iterator[Dict[str, Any]]:
+    async def alloc(self, count: int = 1, waittime: float = 240.0) -> Iterator[Dict[str, Any]]:
         for _ in range(count):
             # pick one gpu for training
             while True:
                 self.detect_free_gpu()
                 if len(self.free_gpus) == 0:
                     logging.info("Visible: {}. Waiting for Free GPU ......".format(self.visible_devices))
-                    time.sleep(waittime)
+                    await asyncio.sleep(waittime)
                 else:
                     logging.info(f"Available device: {self.free_gpus}")
                     device_id = random.sample(list(self.free_gpus), k=1)[0]

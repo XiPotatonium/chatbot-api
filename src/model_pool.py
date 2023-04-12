@@ -3,7 +3,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import itertools
 from asyncio import Lock
-from time import time
 import traceback
 from typing import Any, Dict, Iterator, List, MutableMapping, Optional, Tuple, Type
 
@@ -39,12 +38,12 @@ class ModelResource:
         request_validator: Optional[callable] = None,
     ) -> None:
         self.process = process
-        self.lock = Lock()  # in_q and out_q should be protected by lock
+        self.lock = Lock()  # pipe should be protected by lock
         self._conn = conn
         self.executor = executor
         self.request_validator = request_validator
 
-    async def predict(self, req: dict, files: Dict[str, Tuple[bytes, str]]):
+    async def generate(self, req: dict, files: Dict[str, Tuple[bytes, str]]):
         """_summary_
 
         Args:
@@ -72,7 +71,6 @@ class ModelResource:
         async with self.lock:
             self._conn.send((req, files))
             while True:
-                # TODO: use asyncio to improve concurrency performance
                 # resp = self._conn.recv()
                 resp = await asyncio.get_event_loop().run_in_executor(
                     self.executor, self._conn.recv
@@ -94,16 +92,30 @@ class ModelResource:
 class ModelPool(DeviceMixin):
     def __init__(self) -> None:
         super().__init__()
-        self.models = {}
-        self.models_iter = {}
-        self.requests_history = {}
-        self.load_config = {}
-        self.executor = ThreadPoolExecutor(max_workers=8)
 
-    def _load(self, modelname: str):
+    def init(self, sched_config: Dict[str, Any]):
+        self.sched_config = sched_config
+        self.models = {modelname: [] for modelname in self.model_sched_configs.keys()}
+        self.models_iter = {k: itertools.cycle(v) for k, v in self.models.items()}
+        self.requests_history = {
+            modelname: deque(
+                maxlen=model_sched_config["create_threshold"]["n_requests"]
+            )
+            for modelname, model_sched_config in self.model_sched_configs.items()
+        }
+        self.executor = ThreadPoolExecutor(max_workers=8)
+        # the async lock for the first model to avoid creating multiple models at the same time
+        self.model_creating_locks = {
+            modelname: Lock() for modelname in self.model_sched_configs.keys()
+        }
+
+    async def _load(self, modelname: str):
         meta = MODEL_MAPPING[modelname]
         logging.info(f"Try loading 1 instance of {modelname}...")
-        device = next(self.alloc())
+        async for d in self.alloc(count=1):
+            # actually only 1 device,
+            # NOTE: maybe anext in the future
+            device = d
         device = torch.device(device["device"])
         p_conn, c_conn = mp.Pipe(duplex=True)
         process = mp.Process(target=model_worker, args=(c_conn, meta, device))
@@ -111,33 +123,28 @@ class ModelPool(DeviceMixin):
         resources = ModelResource(
             process, p_conn, self.executor, meta.cls.request_validator
         )
-        if meta.name in self.models:
-            self.models[modelname].append(resources)
-        else:
-            self.models[modelname] = [resources]
+        self.models[modelname].append(resources)
         # logging.info(
         #     f"Loaded {meta.name} ({i + 1}/{count}) on {device} (pid={process.pid})"
         # )
-        # may be too simple design
         self.models_iter[modelname] = itertools.cycle(self.models[modelname])
 
     @property
-    def model_configs(self):
-        return self.load_config["models"]
+    def model_sched_configs(self):
+        return self.sched_config["models"]
 
     async def close_idle_models(self):
-        check_period = self.load_config["idle_check_period"]
+        check_period = self.sched_config["idle_check_period"]
         while True:
-            for modelname, model_config in self.model_configs.items():
-                req_history = self.requests_history.get(modelname)
-                if modelname not in self.models or len(self.models[modelname]) == 0:
+            for modelname, model_sched_config in self.model_sched_configs.items():
+                req_history = self.requests_history[modelname]
+                if len(self.models[modelname]) == 0:
                     continue
                 cur_time = datetime.now()
                 if (
-                    req_history is None
-                    or len(req_history) == 0
+                    len(req_history) == 0
                     or (cur_time - req_history[-1]).total_seconds()
-                    > model_config["idle_time"]
+                    > model_sched_config["idle_time"]
                 ):
                     # close 1 instance of unused for a long period of time
                     # Based on https://docs.python.org/3/library/asyncio-sync.html
@@ -160,29 +167,33 @@ class ModelPool(DeviceMixin):
             for model in model_lst:
                 await model.terminate()
 
-    def acquire(self, modelname: str) -> ModelResource:
-        load_config = self.model_configs[modelname]
-        if modelname not in self.requests_history:
-            self.requests_history[modelname] = deque(
-                maxlen=load_config["create_threshold"]["n_requests"]
-            )
+    async def acquire(self, modelname: str) -> ModelResource:
+        model_sched_config = self.model_sched_configs[modelname]
         cur_time = datetime.now()
         self.requests_history[modelname].append(cur_time)
-        if modelname not in self.models or len(self.models[modelname]) == 0:
-            # create if no instance
-            if load_config["max_instances"] <= 0:
-                raise HTTPException(
-                    400, f"Oops! Model {modelname} is not available now."
-                )
-            self._load(modelname)
-        elif (
-            len(self.models[modelname]) < load_config["max_instances"]
-            and self.get_free_gpu_number() > 0
-            and (cur_time - self.requests_history[modelname][0]).total_seconds()
-            < load_config["create_threshold"]["delay"]
-        ):
-            # create if has free device and reach requests frequency threshold
-            self._load(modelname)
+        async with self.model_creating_locks[modelname]:
+            # acquire a lock to avoid creating multiple models at the same time
+            if len(self.models[modelname]) == 0:
+                if model_sched_config["max_instances"] <= 0:
+                    raise HTTPException(
+                        400, f"Oops! Model {modelname} is not available now."
+                    )
+                # create if no instance
+                await self._load(modelname)
+            elif (
+                len(self.models[modelname]) < model_sched_config["max_instances"]
+                and self.get_free_gpu_number() > 0
+                and (cur_time - self.requests_history[modelname][0]).total_seconds()
+                < model_sched_config["create_threshold"]["delay"]
+            ):
+                # create if has free device and reach requests frequency threshold
+                # remove all requests_history but last one to avoid too frequent creating
+                last_req = self.requests_history[modelname].pop()
+                self.requests_history[modelname].clear()
+                self.requests_history[modelname].append(last_req)
+                # NOTE: since we checked the free_gpu_number > 0, it is unlikely that the loading will await
+                # So there is no efficency issue here
+                await self._load(modelname)
         return next(self.models_iter[modelname])
 
 
@@ -201,7 +212,7 @@ def model_worker(conn: Connection, meta: ModelMeta, device: torch.device):
             if issubclass(meta.cls, ChatModel):
                 messages = iter_messages(req.pop("messages"), files)
             else:
-                raise SystemError(f"Unknown model type: {meta.cls}")
+                raise NotImplementedError()
 
             if req.get("stream", False):
                 for i, choices in enumerate(model.stream_generate(messages, **req)):

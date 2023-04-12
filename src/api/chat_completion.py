@@ -43,9 +43,9 @@ async def chat_completion(
     data: ChatCompletionRequest = Body(...),
 ):
     try:
-        model = MODEL_POOL.acquire(data.model)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="model not found")
+        model = await MODEL_POOL.acquire(data.model)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=f"model not found: {str(e)}")
 
     if files is not None:
         files = {f.filename: (await f.read(), f.content_type) for f in files}
@@ -53,13 +53,13 @@ async def chat_completion(
 
     if data.stream:
         async def stream_generate():
-            async for choices in model.predict(data.dict(), files):
+            async for choices in model.generate(data.dict(), files):
                 resp = ChatCompletionResponse(choices=choices)
                 # logging.debug(resp)
                 yield json.dumps(resp.dict()) + '\n'
         return StreamingResponse(stream_generate(), media_type='text/event-stream')
     else:
-        choices = [pred async for pred in model.predict(data.dict(), files)]
+        choices = [pred async for pred in model.generate(data.dict(), files)]
         assert len(choices) == 1
         choices = choices[0]
         # logging.debug(choices)
