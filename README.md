@@ -1,6 +1,6 @@
 # chatbot-api
 
-SEE [examples.ipynb](examples.ipynb) for detailed examples.
+SEE [examples.ipynb](examples.ipynb) for request examples.
 
 Now support:
 
@@ -38,3 +38,13 @@ A typical config is:
     }
 }
 ```
+
+# Format
+
+## Request format
+
+```json
+
+```
+
+## Response format

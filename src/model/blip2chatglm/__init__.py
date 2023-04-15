@@ -6,13 +6,15 @@ from ...device import empty_cache
 from ...common import ROLE_BOT, ROLE_USER, ROLE_SYSTEM
 from ..model import Model, ChatModel
 from transformers import (
+    AutoModel,
+    AutoTokenizer,
+    AutoConfig,
+    AutoModelForCausalLM,
+    PreTrainedModel,
     BlipImageProcessor,
     PreTrainedTokenizer,
 )
 from typing import Any, Dict, Iterator, List, Mapping, MutableMapping, Tuple, Union
-from .modeling_blip2chatglm import Blip2ChatGLM, Blip2ForChatGLM, Blip2ChatGLMConfig
-from .modeling_chatglm import ChatGLMForConditionalGeneration
-from .tokenization_chatglm import ChatGLMTokenizer
 from transformers.utils.constants import OPENAI_CLIP_MEAN, OPENAI_CLIP_STD
 from PIL import Image
 
@@ -38,37 +40,27 @@ class Blip2ChatGLMModel(ChatModel):
 
     @classmethod
     def load(cls, cfg: MutableMapping[str, Any], device: torch.device) -> Model:
-        tokenizer = ChatGLMTokenizer.from_pretrained(
-            cfg["lm_path"], # trust_remote_code=True
-        )
-        lm = ChatGLMForConditionalGeneration.from_pretrained(
-            cfg["lm_path"],  # device_map="auto"
-        )
-
-        if device.type == "cpu":
-            lm = lm.float()
+        if device == "cpu":
+            lm_dtype = "fp32"
         else:
-            prec = cfg["prec"]
-            if prec == "fp16":
-                lm = lm.half()
-            elif prec == "int4":
-                lm = lm.half().quantize(4)
-            elif prec == "int8":
-                lm = lm.half().quantize(8)
+            lm_dtype = cfg["prec"]
 
-        blip2 = Blip2ForChatGLM.from_pretrained(
-            cfg["model_path"],
+        model = AutoModelForCausalLM.from_pretrained(
+            cfg["model_path"], trust_remote_code=True
         )
-        blip2_config = Blip2ChatGLMConfig.from_pretrained(cfg["model_path"])
-
-        model = Blip2ChatGLM(blip2_config, blip2, lm)
+        model.setup_dtype(vision_encoder_dtype="fp16", lm_dtype=lm_dtype)
         model.to(device)
         model.eval()
 
         # if torch.__version__ >= "2" and sys.platform != "win32":
+        #     logger.info("Use torch.compile")
         #     model = torch.compile(model)
 
-        image_size = model.blip2.config.vision_config.image_size
+        tokenizer = AutoTokenizer.from_pretrained(
+            cfg["model_path"], trust_remote_code=True
+        )
+
+        image_size = model.config.vision_config.image_size
         image_processor = BlipImageProcessor(
             size={"height": image_size, "width": image_size},
             image_mean=OPENAI_CLIP_MEAN,
@@ -81,7 +73,7 @@ class Blip2ChatGLMModel(ChatModel):
         self,
         tokenizer: PreTrainedTokenizer,
         pixel_processor: BlipImageProcessor,
-        model: Blip2ChatGLM,
+        model: PreTrainedModel,
         device: torch.device,
     ) -> None:
         self.tokenizer = tokenizer
@@ -124,17 +116,18 @@ class Blip2ChatGLMModel(ChatModel):
 
         last_output = ""
         yield [{"index": 0, "delta": {"role": ROLE_BOT}}]
-        for i, (output, _) in enumerate(
-            self.model.stream_chat(
-                self.tokenizer,
-                query=query,
-                history=inference_history,
-                max_length=max_tokens,
-                top_p=top_p,
-                temperature=temperature,
-            )
-        ):
-            yield [{"index": 0, "delta": {"content": output[len(last_output) :]}}]
-            last_output = output
+        with torch.cuda.amp.autocast(enabled=True):
+            for i, output in enumerate(
+                self.model.stream_chat(
+                    self.tokenizer,
+                    query=query,
+                    history=inference_history,
+                    max_length=max_tokens,
+                    top_p=top_p,
+                    temperature=temperature,
+                )
+            ):
+                yield [{"index": 0, "delta": {"content": output[len(last_output) :]}}]
+                last_output = output
         yield [{"index": 0, "delta": {}}]
         empty_cache(self.device)

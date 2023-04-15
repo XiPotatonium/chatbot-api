@@ -5,9 +5,9 @@ import torch
 from ...device import empty_cache
 from ...common import ROLE_BOT, ROLE_USER, ROLE_SYSTEM
 from ..model import Model, ChatModel
-from ..blip2chatglm.modeling_chatglm import ChatGLMForConditionalGeneration
-from ..blip2chatglm.tokenization_chatglm import ChatGLMTokenizer
 from transformers import (
+    AutoModel,
+    AutoTokenizer,
     PreTrainedModel,
     BlipImageProcessor,
     PreTrainedTokenizer,
@@ -35,13 +35,12 @@ class ChatGLMModel(ChatModel):
 
     @classmethod
     def load(cls, cfg: MutableMapping[str, Any], device: torch.device) -> Model:
-        tokenizer = ChatGLMTokenizer.from_pretrained(
-            cfg["model_path"],
-            # trust_remote_code=True
+        tokenizer = AutoTokenizer.from_pretrained(
+            cfg["model_path"], trust_remote_code=True
         )
-        model = ChatGLMForConditionalGeneration.from_pretrained(
+        model = AutoModel.from_pretrained(
             cfg["model_path"],
-            # trust_remote_code=True,
+            trust_remote_code=True,
             # device_map="auto"
         )
 
@@ -61,7 +60,12 @@ class ChatGLMModel(ChatModel):
         #     model = torch.compile(model)
         return cls(tokenizer, model, device)
 
-    def __init__(self, tokenizer: PreTrainedTokenizer, model: PreTrainedModel, device: torch.device) -> None:
+    def __init__(
+        self,
+        tokenizer: PreTrainedTokenizer,
+        model: PreTrainedModel,
+        device: torch.device,
+    ) -> None:
         self.tokenizer = tokenizer
         self.model = model
         self.device = device
