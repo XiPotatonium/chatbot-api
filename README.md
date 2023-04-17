@@ -8,6 +8,15 @@ Now support:
 * [chatglm](https://huggingface.co/THUDM/chatglm-6b). `cfgs/chatglm-6b.json`
 * [blip2chatglm](https://huggingface.co/Xipotzzz/blip2zh-chatglm-6b). `cfgs/blip2zh-chatglm-6b.json`.
 
+# Setup
+
+```
+conda create -n llmapi python=3.8
+conda activate llmapi
+conda install pytorch torchvision torchaudio pytorch-cuda=11.7 -c pytorch -c nvidia
+pip install -r requirements.txt
+```
+
 # Run
 
 ```
