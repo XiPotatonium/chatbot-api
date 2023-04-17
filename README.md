@@ -44,7 +44,23 @@ A typical config is:
 ## Request format
 
 ```json
-
+{
+  "model": "blip2zh-chatglm-6b",
+  "messages": [{"role": "user", "content": "Hello!"}],
+  "stream": true,
+  "top_k": 5,
+  "temperature": 1.0
+}
 ```
 
 ## Response format
+
+A typical response:
+
+```json
+{
+    "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hello! How can I help you today?"}}]
+}
+```
+
+You may refer to [examples.ipynb](examples.ipynb) for more examples.
