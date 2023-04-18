@@ -47,7 +47,9 @@ async def chat_completion(
     except KeyError as e:
         raise HTTPException(status_code=404, detail=f"model not found: {str(e)}")
 
-    if files is not None:
+    if files is None:
+        files = {}
+    else:
         files = {f.filename: (await f.read(), f.content_type) for f in files}
         # logging.info(files.keys())
 

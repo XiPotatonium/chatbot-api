@@ -37,12 +37,12 @@ class Model:
 
 class ChatModel(Model):
     def generate(
-        self, history: Iterator[Dict[str, Any]], **kwargs
+        self, messages: Iterator[Dict[str, Any]], files: Dict[str, Tuple[bytes, str]] = {}, **kwargs
     ) -> List[Dict[str, Any]]:
         raise NotImplementedError()
 
     def stream_generate(
-        self, history: Iterator[Dict[str, Any]], **kwargs
+        self, messages: Iterator[Dict[str, Any]], files: Dict[str, Tuple[bytes, str]] = {}, **kwargs
     ) -> Iterator[List[Dict[str, Any]]]:
         raise NotImplementedError()
 

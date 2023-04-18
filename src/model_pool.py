@@ -209,16 +209,13 @@ def model_worker(conn: Connection, meta: ModelMeta, device: torch.device):
             break
         req, files = data
         try:
-            if issubclass(meta.cls, ChatModel):
-                messages = iter_messages(req.pop("messages"), files)
-            else:
-                raise NotImplementedError()
+            messages = req.pop("messages")
 
             if req.get("stream", False):
-                for i, choices in enumerate(model.stream_generate(messages, **req)):
+                for i, choices in enumerate(model.stream_generate(messages, files=files, **req)):
                     conn.send(choices)
             else:
-                choices = model.generate(messages, **req)
+                choices = model.generate(messages, files=files, **req)
                 # logging.debug(choices)
                 # currently mm output is not supported
                 conn.send(choices)

@@ -4,7 +4,7 @@ import torch
 
 from ...device import empty_cache
 from ...common import ROLE_BOT, ROLE_USER, ROLE_SYSTEM
-from ..model import Model, ChatModel
+from ..model import Model, ChatModel, iter_messages
 from transformers import (
     AutoModel,
     AutoTokenizer,
@@ -77,7 +77,8 @@ class ChatGLMModel(ChatModel):
     # TODO: more generation configs
     def stream_generate(
         self,
-        history: Iterator[Dict[str, Any]],
+        messages: Iterator[Dict[str, Any]],
+        files: Dict[str, Tuple[bytes, str]],
         max_tokens: int = 2048,
         top_p: float = 0.7,
         temperature: float = 0.95,
@@ -85,7 +86,7 @@ class ChatGLMModel(ChatModel):
     ):
         inference_history = []
 
-        for info in history:
+        for info in iter_messages(messages, files):
 
             def convert(info: Dict[str, Any]):
                 content = info["content"]
