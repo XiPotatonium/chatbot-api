@@ -21,10 +21,6 @@ class ChatGLMModel(ChatModel):
     def request_validator(
         cls, request: Mapping[str, Any], files: Dict[str, Tuple[bytes, str]]
     ):
-        if not request.get("stream", False):
-            # Currently ChatGLM only allow streaming
-            raise ValueError(f"only stream is implemented for {cls.__name__}")
-
         for req in request["messages"]:
             if "media" in req and len(req["media"]) != 0:
                 raise ValueError(
@@ -73,6 +69,40 @@ class ChatGLMModel(ChatModel):
     def delete(self):
         del self.model
         empty_cache(self.device)
+
+    def generate(
+        self,
+        messages: Iterator[Dict[str, Any]],
+        files: Dict[str, Tuple[bytes, str]],
+        max_tokens: int = 4096,
+        top_p: float = 0.7,
+        temperature: float = 0.95,
+        **kwargs,
+    ):
+        inference_history = []
+
+        for info in iter_messages(messages, files):
+
+            def convert(info: Dict[str, Any]):
+                content = info["content"]
+                return content
+
+            inference_history.append(
+                (convert(info[ROLE_USER]), convert(info[ROLE_BOT]))
+            )
+        query = inference_history.pop()
+        query = query[0]
+
+        output, _ = self.model.chat(
+            self.tokenizer,
+            query=query,
+            history=inference_history,
+            max_length=max_tokens,
+            top_p=top_p,
+            temperature=temperature,
+        )
+        empty_cache(self.device)
+        return [{"index": 0, "message": {"role": ROLE_BOT, "content": output}}]
 
     # TODO: more generation configs
     def stream_generate(

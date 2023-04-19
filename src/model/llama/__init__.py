@@ -26,16 +26,6 @@ class LlamaLoraModel(ChatModel):
                 raise ValueError(
                     f"multi-media input is not supported for {cls.__name__}"
                 )
-            if req["role"] == ROLE_BOT:
-                raise ValueError(f"bot role is not supported for {cls.__name__}")
-
-        if len(request["messages"]) == 1:
-            pass
-        elif len(request["messages"] == 2):
-            if request["messages"][0]["role"] == ROLE_USER or request["messages"][1]["role"] == ROLE_SYSTEM:
-                raise ValueError(f"Available messages form for {cls.__name__} is [system, user] or [user] or [system]")
-        else:
-            raise ValueError(f"Available messages form for {cls.__name__} is [system, user] or [user] or [system]")
 
     @classmethod
     def load(cls, cfg: MutableMapping[str, Any], device: torch.device) -> Model:
@@ -70,7 +60,7 @@ class LlamaLoraModel(ChatModel):
     def generate(
             self,
             history: Iterator[Dict[str, Any]],
-            max_tokens: int = 128,
+            max_tokens: int = 4096,
             top_p: float = 0.75,
             top_k: int = 40,
             temperature: float = 0.1,
@@ -87,29 +77,35 @@ class LlamaLoraModel(ChatModel):
             temperature (float, optional): _description_. Defaults to 0.1.
             beams (int, optional): _description_. Defaults to 4.
         """
-        def generate_prompt(instruction, input=None):
-            if input:
-                return f"""Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
+        def generate_prompt(messages: Iterator[Dict[str, Any]]):
+            messages = list(messages)
+            instruction = None
+            if messages[0]["role"] == ROLE_SYSTEM:
+                instruction = messages[0]['content']
+                messages = messages[1:]
+            prompt = ""
+            if instruction is not None:
+                prompt = f"""Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
 ### Instruction:
-{instruction}
+{instruction}"""
+            else:
+                prompt = f"""Below is an instruction that describes a task. Write a response that appropriately completes the request.
+### Instruction:
+{instruction}"""
+            for message in messages:
+                if message["role"] == ROLE_USER:
+                    prompt += f"""
 ### Input:
-{input}
+{message["content"]}"""
+                else:
+                    prompt += f"""
+### Response:
+{message["content"]}"""
+            prompt += """
 ### Response:"""
-            else:
-                return f"""Below is an instruction that describes a task. Write a response that appropriately completes the request.
-### Instruction:
-{instruction}
-### Response:"""
+            return prompt
 
-        instruction = None
-        query = None
-        for info in history:
-            if ROLE_SYSTEM in info:
-                instruction = info[ROLE_SYSTEM]
-            else:
-                query = info[ROLE_USER]["content"]
-
-        prompt = generate_prompt(instruction, query)
+        prompt = generate_prompt(history)
         # print(f"usr: {prompt}")
         inputs = self.tokenizer(prompt, return_tensors="pt")
         input_ids = inputs["input_ids"].to(self.device)
@@ -128,9 +124,8 @@ class LlamaLoraModel(ChatModel):
             max_new_tokens=max_tokens,
         )
         s = generation_output.sequences[0]
-        output = self.tokenizer.decode(s)
+        output = self.tokenizer.decode(s[len(input_ids[0]):])
         # print("bot: {}".format(output.split("### Response:")[1].strip()))
-        output = output.split("### Response:")[1].strip()
 
         empty_cache(self.device)
         return [{"index": 0, "message": {"role": ROLE_BOT, "content": output}}]

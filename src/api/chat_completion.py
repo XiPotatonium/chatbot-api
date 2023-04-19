@@ -37,7 +37,7 @@ class ChatCompletionRequest(BaseModel):
         return cls.validate(value)
 
 
-@router.post("/api/chat/completion")
+@router.post("/v1/mmchat/completion")
 async def chat_completion(
     files: List[UploadFile] = File([]),
     data: ChatCompletionRequest = Body(...),
@@ -62,6 +62,29 @@ async def chat_completion(
         return StreamingResponse(stream_generate(), media_type='text/event-stream')
     else:
         choices = [pred async for pred in model.generate(data.dict(), files)]
+        assert len(choices) == 1
+        choices = choices[0]
+        # logging.debug(choices)
+        return ChatCompletionResponse(choices=choices).dict()
+
+@router.post("/v1/chat/completions")
+async def chat_completion(
+    data: ChatCompletionRequest = Body(...),
+):
+    try:
+        model = await MODEL_POOL.acquire(data.model)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=f"model not found: {str(e)}")
+
+    if data.stream:
+        async def stream_generate():
+            async for choices in model.generate(data.dict(), {}):
+                resp = ChatCompletionResponse(choices=choices)
+                # logging.debug(resp)
+                yield json.dumps(resp.dict()) + '\n'
+        return StreamingResponse(stream_generate(), media_type='text/event-stream')
+    else:
+        choices = [pred async for pred in model.generate(data.dict(), {})]
         assert len(choices) == 1
         choices = choices[0]
         # logging.debug(choices)
