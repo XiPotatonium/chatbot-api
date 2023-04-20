@@ -50,6 +50,11 @@ class ChatGLMModel(ChatModel):
                 model = model.half().quantize(4)
             elif prec == "int8":
                 model = model.half().quantize(8)
+
+        if "lora_path" in cfg:
+            from peft import PeftModel
+            model = PeftModel.from_pretrained(model, cfg["lora_path"])
+
         model.to(device)
         model.eval()
         # if torch.__version__ >= "2" and sys.platform != "win32":

@@ -7,13 +7,12 @@ from ...device import empty_cache
 from ...common import ROLE_BOT, ROLE_USER, ROLE_SYSTEM
 from ..model import Model, ChatModel
 from transformers import (
-    AutoTokenizer, AutoModelForCausalLM, GenerationConfig, PreTrainedTokenizer
+    AutoTokenizer, AutoModelForCausalLM, GenerationConfig, PreTrainedTokenizer, PreTrainedModel,
 )
-from peft import PeftModel
 from typing import Any, Dict, Iterator, List, Mapping, MutableMapping, Tuple, Union
 
 
-class LlamaLoraModel(ChatModel):
+class LlamaModel(ChatModel):
     @classmethod
     def request_validator(
         cls, request: Mapping[str, Any], files: Dict[str, Tuple[bytes, str]]
@@ -30,16 +29,17 @@ class LlamaLoraModel(ChatModel):
     @classmethod
     def load(cls, cfg: MutableMapping[str, Any], device: torch.device) -> Model:
         path = cfg["model_path"]
-        lora_path = cfg["lora_path"]
         tokenizer = AutoTokenizer.from_pretrained(path, trust_remote_code=True)
         model = AutoModelForCausalLM.from_pretrained(
             path, trust_remote_code=True, torch_dtype=torch.float16,
         )
-        model = PeftModel.from_pretrained(
-            model,
-            lora_path,
-            torch_dtype=torch.float16,
-        )
+        if "lora_path" in cfg:
+            from peft import PeftModel
+            model = PeftModel.from_pretrained(
+                model,
+                cfg["lora_path"],
+                torch_dtype=torch.float16,
+            )
         model.half()
         model.to(device)
         # logging.info(device)
@@ -48,7 +48,7 @@ class LlamaLoraModel(ChatModel):
         #     model = torch.compile(model)
         return cls(tokenizer, model, device)
 
-    def __init__(self, tokenizer: PreTrainedTokenizer, model: PeftModel, device: torch.device) -> None:
+    def __init__(self, tokenizer: PreTrainedTokenizer, model: PreTrainedModel, device: torch.device) -> None:
         self.tokenizer = tokenizer
         self.model = model
         self.device = device
@@ -124,7 +124,7 @@ class LlamaLoraModel(ChatModel):
             max_new_tokens=max_tokens,
         )
         s = generation_output.sequences[0]
-        output = self.tokenizer.decode(s[len(input_ids[0]):])
+        output = self.tokenizer.decode(s[len(input_ids[0]):]).strip()
         # print("bot: {}".format(output.split("### Response:")[1].strip()))
 
         empty_cache(self.device)

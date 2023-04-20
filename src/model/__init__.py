@@ -2,8 +2,8 @@ from __future__ import annotations
 import sys
 from .blip2chatglm import Blip2ChatGLMModel
 from .chatglm import ChatGLMModel
-from .llama import LlamaLoraModel
-from .model import ChatModel, Model, iter_messages
+from .llama import LlamaModel
+from .model import ChatModel, Model
 
 # __future__.annotations will become the default in Python 3.11
 from dataclasses import dataclass
@@ -15,7 +15,6 @@ import json
 __all__ = [
     "Model",
     "ChatModel",
-    "iter_messages",
     "ModelMeta",
 ]
 

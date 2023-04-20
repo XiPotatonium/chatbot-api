@@ -47,16 +47,25 @@ class ChatModel(Model):
         raise NotImplementedError()
 
 
-def _new_message():
-    return {
-        ROLE_USER: {"content": "", "media": []},
-        ROLE_BOT: {"content": "", "media": []},
-    }
-
-
 def iter_messages(
     messages: List[Dict[str, Any]], files: Dict[str, Tuple[bytes, str]]
 ) -> Iterator[Dict[str, Any]]:
+    """Used in chatglm-based models to convert messages into chatglm inference history
+
+    Args:
+        messages (List[Dict[str, Any]]): _description_
+        files (Dict[str, Tuple[bytes, str]]): _description_
+
+    Yields:
+        Iterator[Dict[str, Any]]: _description_
+    """
+
+    def _new_message():
+        return {
+            ROLE_USER: {"content": "", "media": []},
+            ROLE_BOT: {"content": "", "media": []},
+        }
+
     if len(messages) == 0:
         raise ValueError("messages is empty")
     message = _new_message()

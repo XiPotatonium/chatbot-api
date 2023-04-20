@@ -1,0 +1,6 @@
+{
+    "cls": "ChatGLMModel",
+    "model_path": "models/chatglm-6b",
+    "lora_path": "models/InstructGLM-alpaca",
+    "prec": "fp16"
+}

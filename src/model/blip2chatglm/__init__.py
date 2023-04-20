@@ -4,7 +4,7 @@ import torch
 
 from ...device import empty_cache
 from ...common import ROLE_BOT, ROLE_USER, ROLE_SYSTEM
-from ..model import Model, ChatModel
+from ..model import Model, ChatModel, iter_messages
 from transformers import (
     AutoModel,
     AutoTokenizer,
@@ -49,6 +49,15 @@ class Blip2ChatGLMModel(ChatModel):
             cfg["model_path"], trust_remote_code=True
         )
         model.setup_dtype(vision_encoder_dtype="fp16", lm_dtype=lm_dtype)
+
+        if "lora_path" in cfg:
+            from peft import PeftModel
+            model.language_model = PeftModel.from_pretrained(
+                model.language_model,
+                cfg["lora_path"],
+                # torch_dtype=torch.float16,
+            )
+
         model.to(device)
         model.eval()
 
@@ -87,15 +96,16 @@ class Blip2ChatGLMModel(ChatModel):
 
     def stream_generate(
         self,
-        history: Iterator[Dict[str, Any]],
-        max_tokens: int = 2048,
+        messages: Iterator[Dict[str, Any]],
+        files: Dict[str, Tuple[bytes, str]],
+        max_tokens: int = 4096,
         top_p: float = 0.7,
         temperature: float = 0.95,
         **kwargs,
-    ) -> Iterator[List[Dict[str, Any]]]:
+    ):
         inference_history = []
 
-        for info in history:
+        for info in iter_messages(messages, files):
 
             def convert(info: Dict[str, Any]):
                 content = info["content"]
