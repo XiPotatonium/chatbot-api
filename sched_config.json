@@ -17,7 +17,23 @@
                 "delay": 5
             }
         },
+        "chatglm-6b-alpaca-lora": {
+            "max_instances": 1,
+            "idle_time": 3600,
+            "create_threshold": {
+                "n_requests": 5,
+                "delay": 5
+            }
+        },
         "llama-7b-lora": {
+            "max_instances": 1,
+            "idle_time": 3600,
+            "create_threshold": {
+                "n_requests": 5,
+                "delay": 5
+            }
+        },
+        "llama-7b": {
             "max_instances": 1,
             "idle_time": 3600,
             "create_threshold": {

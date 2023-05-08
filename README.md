@@ -4,8 +4,10 @@ SEE [examples.ipynb](examples.ipynb) for request examples.
 
 Now support:
 
+* [llama](https://huggingface.co/decapoda-research/llama-7b-hf). `cfgs/llama-7b.json`
 * [llama](https://huggingface.co/decapoda-research/llama-7b-hf) with [lora](https://huggingface.co/tloen/alpaca-lora-7b). `cfgs/llama-7b-lora.json`
 * [chatglm](https://huggingface.co/THUDM/chatglm-6b). `cfgs/chatglm-6b.json`
+* [InstructGLM](https://github.com/yanqiangmiffy/InstructGLM). `cfgs/chatglm-6b-alpaca-lora.json`
 * [blip2chatglm](https://huggingface.co/Xipotzzz/blip2zh-chatglm-6b). `cfgs/blip2zh-chatglm-6b.json`.
 
 # Setup
@@ -23,7 +25,7 @@ pip install -r requirements.txt
 uvicorn src:app --reload
 ```
 
-chatbot-api now supports model scheduling:
+chatbot-api supports model scheduling:
 
 1. idle model instances will be closed
 2. new model instances will be created if too many concurrent requests
@@ -54,11 +56,10 @@ A typical config is:
 
 ```json
 {
-  "model": "blip2zh-chatglm-6b",
+  "model": "chatglm-6b",
   "messages": [{"role": "user", "content": "Hello!"}],
   "stream": true,
-  "top_k": 5,
-  "temperature": 1.0
+  "max_tokens": 1024,
 }
 ```
 

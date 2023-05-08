@@ -14,7 +14,7 @@ from fastapi import HTTPException
 import logging
 
 from .device import DeviceMixin
-from .model import Model, ChatModel, iter_messages, ModelMeta, MODEL_MAPPING
+from .model import Model, ChatModel, ModelMeta, MODEL_MAPPING
 
 
 class ModelInternelException(Exception):
@@ -209,16 +209,15 @@ def model_worker(conn: Connection, meta: ModelMeta, device: torch.device):
             break
         req, files = data
         try:
-            if issubclass(meta.cls, ChatModel):
-                messages = iter_messages(req.pop("messages"), files)
-            else:
-                raise NotImplementedError()
+            messages = req.pop("messages")
+            kwargs = req.pop("kwargs", {})
+            kwargs.update(req)
 
             if req.get("stream", False):
-                for i, choices in enumerate(model.stream_generate(messages, **req)):
+                for i, choices in enumerate(model.stream_generate(messages, files=files, **kwargs)):
                     conn.send(choices)
             else:
-                choices = model.generate(messages, **req)
+                choices = model.generate(messages, files=files, **kwargs)
                 # logging.debug(choices)
                 # currently mm output is not supported
                 conn.send(choices)

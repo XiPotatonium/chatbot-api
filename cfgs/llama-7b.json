@@ -1,0 +1,4 @@
+{
+    "cls": "LlamaModel",
+    "model_path": "models/llama-7b-hf"
+}
