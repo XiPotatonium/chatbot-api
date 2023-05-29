@@ -4,7 +4,7 @@ import torch
 
 from ...device import empty_cache
 from ...common import ROLE_BOT, ROLE_USER, ROLE_SYSTEM
-from ..model import Model, ChatModel, iter_messages
+from ..model import Model, ChatModel
 from transformers import (
     AutoModel,
     AutoTokenizer,
@@ -31,10 +31,23 @@ class Blip2ChatGLMModel(ChatModel):
             if mime not in ["image/png", "image/jpeg"]:
                 raise ValueError(f"unsupported media type {mime} for {cls.__name__}")
         for req in request["messages"]:
-            if "media" in req and len(req["media"]) > 1:
-                raise ValueError(
-                    f"only one multi-media input is supported for {cls.__name__}"
-                )
+            if "media" in req:
+                for img in req["media"]:
+                    if isinstance(img, str):
+                        # fname
+                        pass
+                    elif isinstance(img, (tuple, list)):
+                        if len(img) != 2:
+                            raise ValueError(
+                                f"invalid media {img} for {cls.__name__}"
+                            )
+                        img, index = img
+                        if not isinstance(img, str) or not isinstance(index, int) or index < 0:
+                            raise ValueError(
+                                f"invalid media {img} for {cls.__name__}"
+                            )
+                    else:
+                        raise ValueError(f"invalid media {img} for {cls.__name__}")
             if req["role"] == ROLE_SYSTEM:
                 raise ValueError(f"system role is not supported for {cls.__name__}")
 
@@ -52,6 +65,7 @@ class Blip2ChatGLMModel(ChatModel):
 
         if "lora_path" in cfg:
             from peft import PeftModel
+
             model.language_model = PeftModel.from_pretrained(
                 model.language_model,
                 cfg["lora_path"],
@@ -94,6 +108,34 @@ class Blip2ChatGLMModel(ChatModel):
         del self.model
         empty_cache(self.device)
 
+    def _prepare_input(
+        self,
+        messages: List[Dict[str, Any]],
+        files: Dict[str, Tuple[bytes, str]],
+    ):
+        ret = []
+        # DISCUSS: should we add a field to state to store chat history for inference?
+        # PROS: save conversion time
+        # CONS: memory consuming, especially for mm history
+        role_mapping = {ROLE_USER: "问", ROLE_BOT: "答", ROLE_SYSTEM: "指令"}
+        for message in messages:
+            role = role_mapping[message["role"]]
+            text = message["content"]
+            medias = []
+            for img in message.get("media", []):
+                if isinstance(img, str):
+                    index = 0       # position default at 0
+                else:
+                    img, index = img
+                data, mime = files[img]
+                pixel_values = self.pixel_processor(
+                    Image.open(io.BytesIO(data)).convert("RGB"), return_tensors="pt"
+                ).pixel_values.to(self.device)
+                medias.append((pixel_values, index))
+
+            ret.append((role, text, medias))
+        return ret
+
     def stream_generate(
         self,
         messages: Iterator[Dict[str, Any]],
@@ -103,26 +145,7 @@ class Blip2ChatGLMModel(ChatModel):
         temperature: float = 0.95,
         **kwargs,
     ):
-        inference_history = []
-
-        for info in iter_messages(messages, files):
-
-            def convert(info: Dict[str, Any]):
-                content = info["content"]
-                media = info["media"]
-                if len(media) != 0:
-                    data, mime = media[0]
-                    pixel_values = self.pixel_processor(
-                        Image.open(io.BytesIO(data)).convert("RGB"), return_tensors="pt"
-                    ).pixel_values.to(self.device)
-                    return (content, pixel_values)
-                return content
-
-            inference_history.append(
-                (convert(info[ROLE_USER]), convert(info[ROLE_BOT]))
-            )
-        query = inference_history.pop()
-        query = query[0]
+        messages = self._prepare_input(messages, files)
 
         last_output = ""
         yield [{"index": 0, "delta": {"role": ROLE_BOT}}]
@@ -130,8 +153,7 @@ class Blip2ChatGLMModel(ChatModel):
             for i, output in enumerate(
                 self.model.stream_chat(
                     self.tokenizer,
-                    query=query,
-                    history=inference_history,
+                    messages=messages,
                     max_length=max_tokens,
                     top_p=top_p,
                     temperature=temperature,

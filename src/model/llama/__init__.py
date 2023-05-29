@@ -59,7 +59,7 @@ class LlamaModel(ChatModel):
 
     def generate(
             self,
-            history: Iterator[Dict[str, Any]],
+            messages: Iterator[Dict[str, Any]],
             max_tokens: int = 4096,
             top_p: float = 0.75,
             top_k: int = 40,
@@ -70,19 +70,19 @@ class LlamaModel(ChatModel):
         """default generation config comes from https://huggingface.co/spaces/tloen/alpaca-lora
 
         Args:
-            history (Iterator[Dict[str, Any]]): _description_
+            messages (Iterator[Dict[str, Any]]): _description_
             max_tokens (int, optional): _description_. Defaults to 128.
             top_p (float, optional): _description_. Defaults to 0.75.
             top_k (int, optional): _description_. Defaults to 40.
             temperature (float, optional): _description_. Defaults to 0.1.
             beams (int, optional): _description_. Defaults to 4.
         """
-        def generate_prompt(messages: Iterator[Dict[str, Any]]):
-            messages = list(messages)
+        def generate_prompt(msgs: Iterator[Dict[str, Any]]):
+            msgs = list(msgs)
             instruction = None
-            if messages[0]["role"] == ROLE_SYSTEM:
-                instruction = messages[0]['content']
-                messages = messages[1:]
+            if msgs[0]["role"] == ROLE_SYSTEM:
+                instruction = msgs[0]['content']
+                msgs = msgs[1:]
             prompt = ""
             if instruction is not None:
                 prompt = f"""Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
@@ -92,7 +92,7 @@ class LlamaModel(ChatModel):
                 prompt = f"""Below is an instruction that describes a task. Write a response that appropriately completes the request.
 ### Instruction:
 {instruction}"""
-            for message in messages:
+            for message in msgs:
                 if message["role"] == ROLE_USER:
                     prompt += f"""
 ### Input:
@@ -105,7 +105,7 @@ class LlamaModel(ChatModel):
 ### Response:"""
             return prompt
 
-        prompt = generate_prompt(history)
+        prompt = generate_prompt(messages)
         # print(f"usr: {prompt}")
         inputs = self.tokenizer(prompt, return_tensors="pt")
         input_ids = inputs["input_ids"].to(self.device)

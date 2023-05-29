@@ -4,7 +4,7 @@ import torch
 
 from ...device import empty_cache
 from ...common import ROLE_BOT, ROLE_USER, ROLE_SYSTEM
-from ..model import Model, ChatModel, iter_messages
+from ..model import Model, ChatModel
 from transformers import (
     AutoModel,
     AutoTokenizer,
@@ -13,7 +13,80 @@ from transformers import (
     PreTrainedTokenizer,
 )
 from typing import Any, Dict, Iterator, List, Mapping, MutableMapping, Tuple, Union
-from PIL import Image
+
+
+def iter_messages(
+    messages: List[Dict[str, Any]], files: Dict[str, Tuple[bytes, str]]
+) -> Iterator[Dict[str, Any]]:
+    """Used in chatglm-based models to convert messages into chatglm inference history
+
+    Args:
+        messages (List[Dict[str, Any]]): _description_
+        files (Dict[str, Tuple[bytes, str]]): _description_
+
+    Yields:
+        Iterator[Dict[str, Any]]: _description_
+    """
+
+    def _new_message():
+        return {
+            ROLE_USER: {"content": "", "media": []},
+            ROLE_BOT: {"content": "", "media": []},
+        }
+
+    if len(messages) == 0:
+        raise ValueError("messages is empty")
+    message = _new_message()
+    for raw_msg in messages:
+        if raw_msg["role"] == ROLE_USER:
+            if (
+                len(message[ROLE_USER]["content"]) != 0
+                or len(message[ROLE_USER]["media"]) != 0
+            ):
+                yield message
+                message = _new_message()
+
+            if "content" in raw_msg:
+                message[ROLE_USER]["content"] = raw_msg["content"]
+            if "media" in raw_msg:
+                message[ROLE_USER]["media"] = [
+                    files[fname] for fname in raw_msg["media"]
+                ]
+        elif raw_msg["role"] == ROLE_BOT:
+            if (
+                len(message[ROLE_BOT]["content"]) != 0
+                or len(message[ROLE_BOT]["media"]) != 0
+            ):
+                yield message
+                message = _new_message()
+
+            if "content" in raw_msg:
+                message[ROLE_BOT]["content"] = raw_msg["content"]
+            if "media" in raw_msg:
+                message[ROLE_BOT]["media"] = [
+                    files[fname] for fname in raw_msg["media"]
+                ]
+        elif raw_msg["role"] == ROLE_SYSTEM:
+            # flush last message and this system message
+            if (
+                len(message[ROLE_BOT]["content"]) != 0
+                or len(message[ROLE_BOT]["media"]) != 0
+                or len(message[ROLE_USER]["content"]) != 0
+                or len(message[ROLE_USER]["media"]) != 0
+            ):
+                yield message
+                message = _new_message()
+            yield {ROLE_SYSTEM: raw_msg["content"]}
+        else:
+            raise ValueError(f"Unknown role: {raw_msg['role']}")
+
+    if (
+        len(message[ROLE_BOT]["content"]) != 0
+        or len(message[ROLE_BOT]["media"]) != 0
+        or len(message[ROLE_USER]["content"]) != 0
+        or len(message[ROLE_USER]["media"]) != 0
+    ):
+        yield message
 
 
 class ChatGLMModel(ChatModel):
